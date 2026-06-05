@@ -448,28 +448,24 @@
         "copilot-specs.model": {
           "type": "string",
           "default": "",
-          "description": "Explicit chat model to use for Copilot Specs. Leave empty to use the fallback list."
+          "description": "Explicit chat model to use for Copilot Specs. Leave empty to use the fallback list. Models still must satisfy the minimum capability filters."
         },
         "copilot-specs.modelFallbacks": {
           "type": "array",
           "default": [
+            "opus-4.6",
             "opus-4.5",
             "opus",
             "gpt-5.5",
             "gpt-5.4",
-            "gpt-5",
-            "sonnet-4.5",
-            "sonnet",
+            "sonnet-4.6",
             "deepseek-pro-max",
-            "deepseek",
-            "kimi-2.6",
-            "kimi",
-            "gpt-4o"
+            "kimi-2.6"
           ],
           "items": {
             "type": "string"
           },
-          "description": "Ordered list of preferred model IDs or family names. The extension uses the first available match."
+          "description": "Ordered list of preferred model IDs or family names. Only eligible models are considered: GPT models must be 5.4+, Sonnet must be 4.6+, and non-Sonnet models must expose a 1M-token input context window."
         }
       }
     }

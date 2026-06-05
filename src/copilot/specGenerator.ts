@@ -13,12 +13,16 @@ export async function generateSpecContent(
 ): Promise<string> {
   const resolvedModel = await resolveChatModel();
   const model = resolvedModel?.model;
-  if (!model) {
+  if (!model || !resolvedModel) {
     stream.markdown(
-      "\n> **Error:** No Copilot model available. Make sure GitHub Copilot Chat is installed.\n",
+      "\n> **Error:** No suitable Copilot model available. Install GitHub Copilot Chat and ensure an eligible high-capability model is available.\n",
     );
     return "";
   }
+
+  stream.progress(
+    `Using model: ${resolvedModel.descriptor} (matched by ${resolvedModel.matchedBy}${resolvedModel.isFallback ? ", fallback" : ""})`,
+  );
 
   const steering = await readSteeringForContext();
 

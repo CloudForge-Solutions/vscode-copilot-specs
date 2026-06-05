@@ -5,37 +5,116 @@ type ChatModelLike = vscode.LanguageModelChat & {
   name?: string;
   family?: string;
   vendor?: string;
+  version?: string;
+  maxInputTokens?: number;
 };
 
 export interface ResolvedChatModel {
   model: vscode.LanguageModelChat;
   matchedBy: string;
+  descriptor: string;
+  isFallback: boolean;
 }
 
 const DEFAULT_MODEL_FALLBACKS = [
+  "opus-4.6",
   "opus-4.5",
   "opus",
   "gpt-5.5",
   "gpt-5.4",
-  "gpt-5",
-  "sonnet-4.5",
-  "sonnet",
+  "sonnet-4.6",
   "deepseek-pro-max",
-  "deepseek",
   "kimi-2.6",
-  "kimi",
-  "gpt-4o",
 ];
+
+const MIN_BIG_CONTEXT_TOKENS = 1_000_000;
 
 function normalize(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
+function getModelMetadata(model: vscode.LanguageModelChat): ChatModelLike {
+  return model as ChatModelLike;
+}
+
 function getModelStrings(model: vscode.LanguageModelChat): string[] {
-  const candidate = model as ChatModelLike;
-  return [candidate.id, candidate.name, candidate.family, candidate.vendor]
+  const candidate = getModelMetadata(model);
+  return [
+    candidate.id,
+    candidate.name,
+    candidate.family,
+    candidate.vendor,
+    candidate.version,
+  ]
     .map(normalize)
     .filter(Boolean);
+}
+
+function getPrimaryDescriptor(model: vscode.LanguageModelChat): string {
+  const candidate = getModelMetadata(model);
+  return (
+    candidate.name ??
+    candidate.id ??
+    candidate.family ??
+    candidate.vendor ??
+    "unknown"
+  );
+}
+
+function parseVersion(text: string): number | undefined {
+  const match = text.match(/(?:^|[^\d])(\d+(?:\.\d+)?)(?:[^\d]|$)/);
+  if (!match) {
+    return undefined;
+  }
+
+  const parsed = Number.parseFloat(match[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getBestDetectedVersion(model: vscode.LanguageModelChat): number | undefined {
+  for (const value of getModelStrings(model)) {
+    const parsed = parseVersion(value);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function isSonnetModel(model: vscode.LanguageModelChat): boolean {
+  return getModelStrings(model).some((value) => value.includes("sonnet"));
+}
+
+function isGptModel(model: vscode.LanguageModelChat): boolean {
+  return getModelStrings(model).some((value) => value.includes("gpt"));
+}
+
+function hasBigContext(model: vscode.LanguageModelChat): boolean {
+  const candidate = getModelMetadata(model);
+  return (candidate.maxInputTokens ?? 0) >= MIN_BIG_CONTEXT_TOKENS;
+}
+
+function isStrongEnough(model: vscode.LanguageModelChat): boolean {
+  const version = getBestDetectedVersion(model);
+
+  if (isGptModel(model) && version !== undefined && version < 5.4) {
+    return false;
+  }
+
+  if (isSonnetModel(model) && version !== undefined && version < 4.6) {
+    return false;
+  }
+
+  return true;
+}
+
+function passesContextRequirement(model: vscode.LanguageModelChat): boolean {
+  if (isSonnetModel(model)) {
+    return true;
+  }
+
+  return hasBigContext(model);
 }
 
 function matchesPreference(
@@ -52,6 +131,10 @@ function matchesPreference(
   );
 }
 
+function isEligible(model: vscode.LanguageModelChat): boolean {
+  return isStrongEnough(model) && passesContextRequirement(model);
+}
+
 export async function resolveChatModel(): Promise<ResolvedChatModel | undefined> {
   const config = vscode.workspace.getConfiguration("copilot-specs");
   const explicitModel = normalize(config.get<string>("model", ""));
@@ -61,16 +144,22 @@ export async function resolveChatModel(): Promise<ResolvedChatModel | undefined>
   );
 
   const availableModels = await vscode.lm.selectChatModels({});
-  if (availableModels.length === 0) {
+  const eligibleModels = availableModels.filter(isEligible);
+  if (eligibleModels.length === 0) {
     return undefined;
   }
 
   if (explicitModel) {
-    const explicitMatch = availableModels.find((model) =>
+    const explicitMatch = eligibleModels.find((model) =>
       matchesPreference(model, explicitModel),
     );
     if (explicitMatch) {
-      return { model: explicitMatch, matchedBy: explicitModel };
+      return {
+        model: explicitMatch,
+        matchedBy: explicitModel,
+        descriptor: getPrimaryDescriptor(explicitMatch),
+        isFallback: false,
+      };
     }
   }
 
@@ -80,13 +169,24 @@ export async function resolveChatModel(): Promise<ResolvedChatModel | undefined>
       continue;
     }
 
-    const match = availableModels.find((model) =>
+    const match = eligibleModels.find((model) =>
       matchesPreference(model, normalizedPreference),
     );
     if (match) {
-      return { model: match, matchedBy: normalizedPreference };
+      return {
+        model: match,
+        matchedBy: normalizedPreference,
+        descriptor: getPrimaryDescriptor(match),
+        isFallback: false,
+      };
     }
   }
 
-  return { model: availableModels[0], matchedBy: "first-available" };
+  const fallbackModel = eligibleModels[0];
+  return {
+    model: fallbackModel,
+    matchedBy: "first-eligible",
+    descriptor: getPrimaryDescriptor(fallbackModel),
+    isFallback: true,
+  };
 }
