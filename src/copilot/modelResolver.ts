@@ -17,14 +17,16 @@ export interface ResolvedChatModel {
 }
 
 const DEFAULT_MODEL_FALLBACKS = [
-  "opus-4.6",
-  "opus-4.5",
-  "opus",
+  "claude-opus-4.8",
+  "claude-opus-4.7",
+  "claude-opus-4.6",
   "gpt-5.5",
   "gpt-5.4",
-  "sonnet-4.6",
-  "deepseek-pro-max",
-  "kimi-2.6",
+  "claude-sonnet-4.6",
+  "9r@deepseek-v4-pro-max",
+  "h@deepseek-v4-pro-max",
+  "9r@combo-kimi-2.6",
+  "h@combo-kimi-2.6",
 ];
 
 const MIN_BIG_CONTEXT_TOKENS = 1_000_000;
@@ -37,7 +39,7 @@ function getModelMetadata(model: vscode.LanguageModelChat): ChatModelLike {
   return model as ChatModelLike;
 }
 
-function getModelStrings(model: vscode.LanguageModelChat): string[] {
+function getExactFields(model: vscode.LanguageModelChat): string[] {
   const candidate = getModelMetadata(model);
   return [
     candidate.id,
@@ -52,13 +54,7 @@ function getModelStrings(model: vscode.LanguageModelChat): string[] {
 
 function getPrimaryDescriptor(model: vscode.LanguageModelChat): string {
   const candidate = getModelMetadata(model);
-  return (
-    candidate.name ??
-    candidate.id ??
-    candidate.family ??
-    candidate.vendor ??
-    "unknown"
-  );
+  return candidate.id ?? candidate.name ?? candidate.family ?? candidate.vendor ?? "unknown";
 }
 
 function parseVersion(text: string): number | undefined {
@@ -72,22 +68,57 @@ function parseVersion(text: string): number | undefined {
 }
 
 function getBestDetectedVersion(model: vscode.LanguageModelChat): number | undefined {
-  for (const value of getModelStrings(model)) {
-    const parsed = parseVersion(value);
-    if (parsed !== undefined) {
-      return parsed;
-    }
+  const candidate = getModelMetadata(model);
+  const idVersion = parseVersion(normalize(candidate.id));
+  if (idVersion !== undefined) {
+    return idVersion;
+  }
+
+  const nameVersion = parseVersion(normalize(candidate.name));
+  if (nameVersion !== undefined) {
+    return nameVersion;
+  }
+
+  const familyVersion = parseVersion(normalize(candidate.family));
+  if (familyVersion !== undefined) {
+    return familyVersion;
+  }
+
+  const explicitVersion = parseVersion(normalize(candidate.version));
+  if (explicitVersion !== undefined) {
+    return explicitVersion;
   }
 
   return undefined;
 }
 
+function getId(model: vscode.LanguageModelChat): string {
+  return normalize(getModelMetadata(model).id);
+}
+
+function isClaudeModel(model: vscode.LanguageModelChat): boolean {
+  const id = getId(model);
+  if (id.startsWith("claude-")) {
+    return true;
+  }
+
+  return getExactFields(model).some((value) => value.includes("claude"));
+}
+
 function isSonnetModel(model: vscode.LanguageModelChat): boolean {
-  return getModelStrings(model).some((value) => value.includes("sonnet"));
+  return getExactFields(model).some((value) => value.includes("sonnet"));
 }
 
 function isGptModel(model: vscode.LanguageModelChat): boolean {
-  return getModelStrings(model).some((value) => value.includes("gpt"));
+  return getExactFields(model).some((value) => value.includes("gpt"));
+}
+
+function isDeepSeekModel(model: vscode.LanguageModelChat): boolean {
+  return getExactFields(model).some((value) => value.includes("deepseek"));
+}
+
+function isKimiModel(model: vscode.LanguageModelChat): boolean {
+  return getExactFields(model).some((value) => value.includes("kimi"));
 }
 
 function hasBigContext(model: vscode.LanguageModelChat): boolean {
@@ -117,7 +148,21 @@ function passesContextRequirement(model: vscode.LanguageModelChat): boolean {
   return hasBigContext(model);
 }
 
-function matchesPreference(
+function passesProviderExpectation(model: vscode.LanguageModelChat): boolean {
+  const id = getId(model);
+
+  if (isClaudeModel(model)) {
+    return id.startsWith("claude-") || id.includes("/claude-");
+  }
+
+  if (isDeepSeekModel(model) || isKimiModel(model)) {
+    return id.includes("@");
+  }
+
+  return true;
+}
+
+function matchesPreferenceExact(
   model: vscode.LanguageModelChat,
   preference: string,
 ): boolean {
@@ -126,13 +171,41 @@ function matchesPreference(
     return false;
   }
 
-  return getModelStrings(model).some(
-    (candidate) => candidate === wanted || candidate.includes(wanted),
-  );
+  return getExactFields(model).includes(wanted);
+}
+
+function matchesKnownAlias(
+  model: vscode.LanguageModelChat,
+  preference: string,
+): boolean {
+  const wanted = normalize(preference);
+  const id = getId(model);
+
+  if (!wanted) {
+    return false;
+  }
+
+  if (wanted.startsWith("claude-opus-") || wanted.startsWith("claude-sonnet-")) {
+    return id === wanted || id.endsWith(`/${wanted}`);
+  }
+
+  if (wanted.startsWith("gpt-")) {
+    return id === wanted;
+  }
+
+  if (wanted.includes("deepseek") || wanted.includes("kimi")) {
+    return id === wanted;
+  }
+
+  return false;
 }
 
 function isEligible(model: vscode.LanguageModelChat): boolean {
-  return isStrongEnough(model) && passesContextRequirement(model);
+  return (
+    isStrongEnough(model) &&
+    passesContextRequirement(model) &&
+    passesProviderExpectation(model)
+  );
 }
 
 export async function resolveChatModel(): Promise<ResolvedChatModel | undefined> {
@@ -150,8 +223,10 @@ export async function resolveChatModel(): Promise<ResolvedChatModel | undefined>
   }
 
   if (explicitModel) {
-    const explicitMatch = eligibleModels.find((model) =>
-      matchesPreference(model, explicitModel),
+    const explicitMatch = eligibleModels.find(
+      (model) =>
+        matchesPreferenceExact(model, explicitModel) ||
+        matchesKnownAlias(model, explicitModel),
     );
     if (explicitMatch) {
       return {
@@ -169,8 +244,10 @@ export async function resolveChatModel(): Promise<ResolvedChatModel | undefined>
       continue;
     }
 
-    const match = eligibleModels.find((model) =>
-      matchesPreference(model, normalizedPreference),
+    const match = eligibleModels.find(
+      (model) =>
+        matchesPreferenceExact(model, normalizedPreference) ||
+        matchesKnownAlias(model, normalizedPreference),
     );
     if (match) {
       return {

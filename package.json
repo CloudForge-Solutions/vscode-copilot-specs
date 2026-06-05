@@ -448,24 +448,26 @@
         "copilot-specs.model": {
           "type": "string",
           "default": "",
-          "description": "Explicit chat model to use for Copilot Specs. Leave empty to use the fallback list. Models still must satisfy the minimum capability filters."
+          "description": "Exact chat model ID or exact exposed model field to use for Copilot Specs. Example values: claude-opus-4.8, gpt-5.5, 9r@deepseek-v4-pro-max, h@combo-kimi-2.6. Models still must satisfy the minimum capability filters."
         },
         "copilot-specs.modelFallbacks": {
           "type": "array",
           "default": [
-            "opus-4.6",
-            "opus-4.5",
-            "opus",
+            "claude-opus-4.8",
+            "claude-opus-4.7",
+            "claude-opus-4.6",
             "gpt-5.5",
             "gpt-5.4",
-            "sonnet-4.6",
-            "deepseek-pro-max",
-            "kimi-2.6"
+            "claude-sonnet-4.6",
+            "9r@deepseek-v4-pro-max",
+            "h@deepseek-v4-pro-max",
+            "9r@combo-kimi-2.6",
+            "h@combo-kimi-2.6"
           ],
           "items": {
             "type": "string"
           },
-          "description": "Ordered list of preferred model IDs or family names. Only eligible models are considered: GPT models must be 5.4+, Sonnet must be 4.6+, and non-Sonnet models must expose a 1M-token input context window."
+          "description": "Ordered list of exact preferred model IDs. Use exact IDs for custom/provider models. Only eligible models are considered: GPT models must be 5.4+, Sonnet must be 4.6+, and non-Sonnet models must expose a 1M-token input context window. Claude-family models are expected to come from claude-* IDs, while DeepSeek and Kimi are expected to come from custom/provider-prefixed IDs like 9r@... or h@..."
         }
       }
     }
