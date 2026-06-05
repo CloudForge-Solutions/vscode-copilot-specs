@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { createSpec } from "../specManager.js";
 import { readSteeringForContext } from "../steeringManager.js";
 import { loadTasks, applyCompletedIds } from "../taskManager.js";
+import { resolveChatModel } from "./modelResolver.js";
 
 export async function generateSpecContent(
   specName: string,
@@ -10,8 +11,8 @@ export async function generateSpecContent(
   section: "requirements" | "design" | "tasks",
   stream: vscode.ChatResponseStream,
 ): Promise<string> {
-  const models = await vscode.lm.selectChatModels({ family: "gpt-4o" });
-  const model = models[0];
+  const resolvedModel = await resolveChatModel();
+  const model = resolvedModel?.model;
   if (!model) {
     stream.markdown(
       "\n> **Error:** No Copilot model available. Make sure GitHub Copilot Chat is installed.\n",

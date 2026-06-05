@@ -444,6 +444,32 @@
           ],
           "default": "feature",
           "description": "Default spec template to use when creating a new spec."
+        },
+        "copilot-specs.model": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit chat model to use for Copilot Specs. Leave empty to use the fallback list."
+        },
+        "copilot-specs.modelFallbacks": {
+          "type": "array",
+          "default": [
+            "opus-4.5",
+            "opus",
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5",
+            "sonnet-4.5",
+            "sonnet",
+            "deepseek-pro-max",
+            "deepseek",
+            "kimi-2.6",
+            "kimi",
+            "gpt-4o"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Ordered list of preferred model IDs or family names. The extension uses the first available match."
         }
       }
     }
